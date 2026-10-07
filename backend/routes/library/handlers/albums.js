@@ -1,3 +1,4 @@
+import { isDeezerAlbumId } from "../../../../lib/catalogId.js";
 import { libraryManager } from "../../../services/libraryManager.js";
 import { playlistManager } from "../../../services/playlists/playlistManager.js";
 import { dbOps } from "../../../db/helpers/index.js";
@@ -75,7 +76,7 @@ export function registerAlbums(router) {
 
         let managedBy;
         try {
-          managedBy = await libraryManager.resolveManagedBy(requestedManagedBy);
+          managedBy = await libraryManager.resolveManagedBy(isDeezerAlbumId(releaseGroupMbid) ? "aurral" : requestedManagedBy);
         } catch (error) {
           return res.status(error.statusCode || 400).json({
             error: error.message,

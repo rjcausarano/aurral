@@ -1,3 +1,4 @@
+import { musicbrainzId, parseDeezerId } from "../../../lib/catalogId.js";
 import {
   lastfmRequest,
   musicbrainzResolveArtistMbidByName,
@@ -183,7 +184,7 @@ export function matchTrackByTitle(tracks, trackName, trackNumber = null) {
 
 function applyReleaseContext(base, releaseContext) {
   if (
-    releaseContext?.artistId &&
+    musicbrainzId(releaseContext?.artistId) &&
     artistNamesMatch(base.artistName, releaseContext.artistName)
   ) {
     base.artistMbid = releaseContext.artistId;
@@ -217,7 +218,9 @@ function applyReleaseContext(base, releaseContext) {
     }
   }
   const matchedTrack = identityMatchedTrack || titleMatchedTrack;
-  if (identityMatchedTrack?.recordingId) {
+  if (identityMatchedTrack && parseDeezerId(existingTrackMbid, "track")) {
+    base.trackMbid = existingTrackMbid;
+  } else if (identityMatchedTrack?.recordingId) {
     // Preserve a recording already present on any edition, or translate a
     // stored release-track ID through the exact edition that contains it.
     base.trackMbid = identityMatchedTrack.recordingId;

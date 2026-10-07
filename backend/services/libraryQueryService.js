@@ -532,6 +532,7 @@ const libraryDateAlbumProjection = (row) => {
       artistMetadata.foreignArtistId || row.artist_mbid || row.artist_identity_key,
     mbid: row.mbid || row.release_group_mbid || null,
     releaseGroupMbid: row.release_group_mbid || null,
+    catalogId: metadata.catalogId || null,
     foreignAlbumId:
       metadata.foreignAlbumId || row.mbid || row.release_group_mbid || row.identity_key,
     albumName: row.title,
@@ -732,8 +733,8 @@ export function getLibraryTrackOwnership({
 
   const mbid = String(trackMbid || "").trim();
   if (mbid) {
-    conditions.push("track.mbid = ?");
-    parameters.push(mbid);
+    conditions.push("(track.mbid = ? OR track.identity_key = ?)");
+    parameters.push(mbid, mbid);
   } else {
     const artist = String(artistName || "").trim();
     const title = String(trackName || "").trim();

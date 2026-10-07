@@ -1,3 +1,4 @@
+import { isDeezerAlbumId, parseDeezerId, musicbrainzId } from "../../lib/catalogId.js";
 import fs from "fs/promises";
 import path from "path";
 import { parseFile } from "music-metadata";
@@ -91,18 +92,18 @@ const applyMetadataEnrichment = (metadata, enrichment = null) => {
     title: trusted.trackName,
     date: trusted.releaseYear,
     track: trusted.trackNumber,
-    musicbrainz_artistid: trusted.artistMbid,
-    musicbrainz_albumartistid: trusted.artistMbid,
-    musicbrainz_albumid: trusted.albumMbid,
-    musicbrainz_releasegroupid: trusted.albumMbid,
-    musicbrainz_recordingid: trusted.trackMbid,
-    musicbrainz_trackid: trusted.trackMbid,
+    musicbrainz_artistid: musicbrainzId(trusted.artistMbid),
+    musicbrainz_albumartistid: musicbrainzId(trusted.artistMbid),
+    musicbrainz_albumid: musicbrainzId(trusted.albumMbid),
+    musicbrainz_releasegroupid: musicbrainzId(trusted.albumMbid),
+    musicbrainz_recordingid: musicbrainzId(trusted.trackMbid),
+    musicbrainz_trackid: musicbrainzId(trusted.trackMbid),
   };
   for (const [key, value] of Object.entries(fallbackFields)) {
     if (value == null || String(value).trim() === "") continue;
     if (common[key] == null || String(common[key]).trim() === "") common[key] = value;
   }
-  return { ...(metadata || {}), common };
+  return { ...(metadata || {}), common, aurralIdentity: trusted };
 };
 
 function readPathFallback(filePath, rootPath) {
@@ -120,6 +121,9 @@ function readPathFallback(filePath, rootPath) {
 
 function buildMetadataRecord(metadata, filePath, rootPath) {
   const common = normalizeMetadata(metadata);
+  const trusted = metadata.aurralIdentity || readEmbeddedAurralIdentity(metadata);
+  const catalogAlbumId = isDeezerAlbumId(trusted.albumMbid) ? trusted.albumMbid : null;
+  const catalogTrackId = parseDeezerId(trusted.trackMbid, "track") ? trusted.trackMbid : null;
   const fallback = readPathFallback(filePath, rootPath);
   const artistName = text(common.albumartist || common.artist) || fallback.artistName;
   const albumName = text(common.album) || fallback.albumName;
@@ -127,19 +131,19 @@ function buildMetadataRecord(metadata, filePath, rootPath) {
   const trackNumber = numberPart(common.track, fallback.trackNumber);
   const discNumber = numberPart(common.disk, fallback.discNumber) || 1;
   const artistMbid = normalizeMbid(common.musicbrainz_albumartistid || common.musicbrainz_artistid);
-  const albumMbid = normalizeMbid(common.musicbrainz_albumid);
-  const releaseGroupMbid = normalizeMbid(common.musicbrainz_releasegroupid);
-  const trackMbid = normalizeMbid(
+  const albumMbid = catalogAlbumId ? null : normalizeMbid(common.musicbrainz_albumid);
+  const releaseGroupMbid = catalogAlbumId ? null : normalizeMbid(common.musicbrainz_releasegroupid);
+  const trackMbid = catalogTrackId ? null : normalizeMbid(
     common.musicbrainz_recordingid || common.musicbrainz_trackid,
   );
   const artistKey =
     (artistMbid && buildIdentityKey("mbid", artistMbid)) ||
     buildFallbackIdentityKey("artist", artistName);
-  const albumKey =
+  const albumKey = catalogAlbumId ||
     (releaseGroupMbid && buildIdentityKey("release-group", releaseGroupMbid)) ||
     (albumMbid && buildIdentityKey("album", albumMbid)) ||
     buildFallbackIdentityKey("album", artistKey, albumName);
-  const trackKey =
+  const trackKey = catalogTrackId ||
     (trackMbid && buildIdentityKey("recording", trackMbid)) ||
     buildFallbackIdentityKey("track", albumKey, discNumber, trackNumber, title);
 
@@ -160,8 +164,8 @@ function buildMetadataRecord(metadata, filePath, rootPath) {
     albumArtist: text(common.albumartist) || artistName,
     releaseDate: text(common.releasedate || common.date) || null,
     artistMetadata: { tags: common },
-    albumMetadata: { tags: common },
-    trackMetadata: { tags: common },
+    albumMetadata: { tags: common, ...(catalogAlbumId ? { catalogId: catalogAlbumId, foreignAlbumId: catalogAlbumId, catalogProvider: "deezer" } : {}) },
+    trackMetadata: { tags: common, ...(catalogTrackId ? { catalogId: catalogTrackId, foreignTrackId: catalogTrackId, catalogProvider: "deezer" } : {}) },
     durationMs: Number.isFinite(Number(metadata?.format?.duration))
       ? Math.round(Number(metadata.format.duration) * 1000)
       : null,

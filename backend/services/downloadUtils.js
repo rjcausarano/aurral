@@ -1,3 +1,4 @@
+import { musicbrainzId } from "../../lib/catalogId.js";
 import { execFile } from "child_process";
 import { promisify } from "util";
 import path from "path";
@@ -263,12 +264,12 @@ export async function writeAudioMetadata(filePath, metadata = {}) {
     ["artist", performer || metadata.artistName],
     ["album_artist", metadata.artistName],
     ["album", metadata.albumName],
-    ["musicbrainz_artistid", performer ? null : metadata.artistMbid],
-    ["musicbrainz_albumartistid", metadata.artistMbid],
-    ["musicbrainz_albumid", metadata.albumMbid],
-    ["musicbrainz_releasegroupid", metadata.albumMbid],
-    ["musicbrainz_recordingid", metadata.trackMbid],
-    ["musicbrainz_trackid", metadata.trackMbid],
+    ["musicbrainz_artistid", performer ? null : musicbrainzId(metadata.artistMbid)],
+    ["musicbrainz_albumartistid", musicbrainzId(metadata.artistMbid)],
+    ["musicbrainz_albumid", musicbrainzId(metadata.albumMbid)],
+    ["musicbrainz_releasegroupid", musicbrainzId(metadata.albumMbid)],
+    ["musicbrainz_recordingid", musicbrainzId(metadata.trackMbid)],
+    ["musicbrainz_trackid", musicbrainzId(metadata.trackMbid)],
     ["grouping", buildAurralIdentityComment(metadata)],
     ["date", metadata.releaseYear],
     ["track", normalizePositiveInteger(metadata.trackNumber)],

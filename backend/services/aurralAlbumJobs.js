@@ -1,3 +1,4 @@
+import { trackCatalogId } from "../../lib/catalogId.js";
 import { downloadTracker } from "./downloadJobs/downloadTracker.js";
 import { cancelDownloadJobs } from "./downloadJobs/downloadCancellation.js";
 import { cancelDownloadWorkForJobs } from "./downloadJobs/downloadCancellationService.js";
@@ -34,8 +35,9 @@ export function indexAurralAlbumJobs() {
 }
 
 export function jobMatchesTrack(job, track) {
-  if (job.trackMbid && track.mbid) {
-    return normalizeKey(job.trackMbid) === normalizeKey(track.mbid);
+  const catalogId = trackCatalogId(track);
+  if (job.trackMbid && catalogId) {
+    return normalizeKey(job.trackMbid) === normalizeKey(catalogId);
   }
   if (job.trackMbid) return false;
   return normalizeKey(job.trackName) === normalizeKey(track.title);

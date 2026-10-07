@@ -1,3 +1,4 @@
+import { isDeezerAlbumId } from "../../../lib/catalogId.js";
 const MANAGER_NAMES = {
   aurral: "Aurral",
   lidarr: "Lidarr",
@@ -85,7 +86,7 @@ export const buildAlbumRequestPayload = ({
   albumName,
   artistMbid,
   artistName,
-  managedBy,
+  managedBy: isDeezerAlbumId(albumMbid) ? "aurral" : managedBy,
   triggerSearch,
 });
 

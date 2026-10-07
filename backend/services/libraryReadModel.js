@@ -89,6 +89,7 @@ const buildAlbum = (album, artistsById, tracksById, managementByAlbumId = new Ma
     artistMbid: artist?.mbid || null,
     artistName: artist?.name || album.albumArtist,
     mbid: album.mbid || album.releaseGroupMbid,
+    catalogId: album.metadata?.catalogId || null,
     releaseGroupMbid: album.releaseGroupMbid || null,
     foreignAlbumId:
       album.metadata?.foreignAlbumId || album.mbid || album.releaseGroupMbid || album.identityKey,

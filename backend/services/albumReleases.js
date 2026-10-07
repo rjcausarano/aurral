@@ -1,8 +1,8 @@
+import { isCatalogAlbumId } from "../../lib/catalogId.js";
 import { getAlbumByMbid } from "./providers/brainzmashProvider.js";
 import { normalizeMatchText } from "./trackMatching/nativeMatcher.js";
 import { isVariousArtistsCredit } from "./trackMatching/titleText.js";
 
-const MBID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 
 // A compilation names each track's artist, or still credits "Various
 // Artists"; its folders and release names carry the album title only.
@@ -27,7 +27,7 @@ export function jobReleaseTrack(job) {
 // stored on the jobs.
 export async function loadAlbumReleases(albumMbid) {
   const id = String(albumMbid || "").trim();
-  if (!MBID_PATTERN.test(id)) return [];
+  if (!isCatalogAlbumId(id)) return [];
   try {
     const album = await getAlbumByMbid(id);
     return (album?.releases || [])

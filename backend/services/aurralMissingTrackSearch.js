@@ -25,7 +25,7 @@ const candidateAlbumsStmt = db.prepare(`
   SELECT
     album.id,
     album.title,
-    COALESCE(album.mbid, album.release_group_mbid) AS mbid,
+    COALESCE(album.mbid, album.release_group_mbid, json_extract(album.metadata_json, '$.catalogId')) AS mbid,
     album.release_group_mbid AS releaseGroupMbid,
     artist.name AS artistName,
     artist.mbid AS artistMbid,
@@ -34,7 +34,7 @@ const candidateAlbumsStmt = db.prepare(`
   JOIN library_albums AS album ON album.id = management.entity_id
   JOIN library_artists AS artist ON artist.id = album.artist_id
   WHERE ${AURRAL_ALBUM_CONDITION}
-    AND COALESCE(album.mbid, album.release_group_mbid) IS NOT NULL
+    AND COALESCE(album.mbid, album.release_group_mbid, json_extract(album.metadata_json, '$.catalogId')) IS NOT NULL
     AND (management.last_missing_search_at IS NULL OR management.last_missing_search_at <= ?)
     AND EXISTS (
       SELECT 1 FROM library_album_tracks AS link

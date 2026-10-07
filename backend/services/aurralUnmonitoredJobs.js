@@ -13,7 +13,8 @@ const unmonitoredFilePathsStmt = db.prepare(`
 
 const unmonitoredTracksStmt = db.prepare(`
   SELECT album.mbid AS albumMbid, album.release_group_mbid AS releaseGroupMbid,
-    track.mbid, track.title
+    json_extract(album.metadata_json, '$.catalogId') AS catalogAlbumId,
+    COALESCE(track.mbid, json_extract(track.metadata_json, '$.catalogId')) AS mbid, track.title
   FROM library_album_tracks AS link
   JOIN library_albums AS album ON album.id = link.album_id
   JOIN library_tracks AS track ON track.id = link.track_id
@@ -29,7 +30,7 @@ export function indexUnmonitoredJobs() {
   const filePaths = new Set(unmonitoredFilePathsStmt.all());
   const tracksByAlbum = new Map();
   for (const track of unmonitoredTracksStmt.all()) {
-    for (const key of new Set([track.albumMbid, track.releaseGroupMbid].filter(Boolean).map(albumKey))) {
+    for (const key of new Set([track.albumMbid, track.releaseGroupMbid, track.catalogAlbumId].filter(Boolean).map(albumKey))) {
       tracksByAlbum.set(key, [...(tracksByAlbum.get(key) || []), track]);
     }
   }

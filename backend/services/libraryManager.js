@@ -1,3 +1,5 @@
+import { albumCatalogId, trackCatalogId, isDeezerAlbumId, isCatalogAlbumId, musicbrainzId } from "../../lib/catalogId.js";
+import { deezerCatalog } from "./providers/deezerCatalogProvider.js";
 import { setTimeout as sleep } from "node:timers/promises";
 import fsp from "fs/promises";
 import path from "path";
@@ -89,6 +91,7 @@ import { runMonitoringRepairSequence } from "./libraryMonitoringRepair.js";
 import {
   getAlbumByMbid as getMetadataAlbumByMbid,
   getArtistByMbid as getMetadataArtistByMbid,
+  listArtistAlbums as listMetadataArtistAlbums,
   selectAlbumRelease,
 } from "./providers/brainzmashProvider.js";
 import { isVariousArtistsCredit } from "./trackMatching/titleText.js";
@@ -124,7 +127,7 @@ const isMonitoredTrack = (trackId) => Boolean(monitoredTrackStmt.get(Number(trac
 
 const setTrackMonitoredStmt = db.prepare("UPDATE library_tracks SET monitored = ? WHERE id = ?");
 
-const trackIdByMbidStmt = db.prepare("SELECT id FROM library_tracks WHERE mbid = ? ORDER BY id LIMIT 1");
+const trackIdByMbidStmt = db.prepare("SELECT id FROM library_tracks WHERE COALESCE(mbid, json_extract(metadata_json, '$.catalogId')) = ? ORDER BY id LIMIT 1");
 
 const trackOnOtherAlbumStmt = db.prepare(
   "SELECT 1 FROM library_album_tracks WHERE track_id = ? AND album_id != ? LIMIT 1",
@@ -218,6 +221,7 @@ function mapLibraryAlbum(album, artist, tracks = []) {
     artistName: artist?.name || album.albumArtist || null,
     artistMbid: artist?.mbid || null,
     mbid: album.releaseGroupMbid || album.mbid || null,
+    catalogId: albumCatalogId(album),
     releaseGroupMbid: album.releaseGroupMbid || null,
     foreignAlbumId:
       album.metadata?.foreignAlbumId || album.releaseGroupMbid || album.mbid || album.identityKey,
@@ -394,12 +398,12 @@ function isLidarrNotFoundError(error) {
 
 // An album's jobs carry its release group or, from older versions, its
 // stored mbid.
-const albumJobKeys = (album) => [album.releaseGroupMbid, album.mbid];
+const albumJobKeys = (album) => [album.releaseGroupMbid, album.mbid, albumCatalogId(album)];
 
 async function removeLibraryDownloadJobs(tracks, { albumMbids = [] } = {}) {
   const normalize = (value) => String(value || "").trim().toLocaleLowerCase();
   const trackKeys = tracks.map((track) => ({
-    mbid: normalize(track?.mbid),
+    mbid: normalize(trackCatalogId(track)),
     artistName: normalize(track?.artistName),
     title: normalize(track?.title),
   }));
@@ -1608,13 +1612,13 @@ export class LibraryManager {
     if (!album) {
       return { error: "Album was not found in the library", statusCode: 404 };
     }
-    if (options.monitoringMode && !this._canAcquireMonitoredAlbum(options.artistMbid, album.releaseGroupMbid || album.mbid, options.monitoringMode)) {
+    if (options.monitoringMode && !this._canAcquireMonitoredAlbum(options.artistMbid, albumCatalogId(album), options.monitoringMode)) {
       return { status: "skipped" };
     }
 
     const artist = library.artists.find((entry) => entry.id === album.artistId);
     const mappedAlbum = mapLibraryAlbum(album, artist, library.tracks);
-    const albumMbid = album.releaseGroupMbid || album.mbid || null;
+    const albumMbid = albumCatalogId(album);
     const albumTracks = library.tracks.filter((track) => album.trackIds.includes(track.id));
     let albumJobs = findAurralAlbumJobs(albumJobKeys(album));
     const requestGroupId =
@@ -1655,7 +1659,7 @@ export class LibraryManager {
     };
 
     for (const track of missingTracks) {
-      if (options.monitoringMode && !this._canAcquireMonitoredAlbum(options.artistMbid, album.releaseGroupMbid || album.mbid, options.monitoringMode)) {
+      if (options.monitoringMode && !this._canAcquireMonitoredAlbum(options.artistMbid, albumCatalogId(album), options.monitoringMode)) {
         return { status: "skipped" };
       }
       const relation = (track.albums || []).find((entry) => entry.albumId === album.id);
@@ -1682,7 +1686,7 @@ export class LibraryManager {
           });
           continue;
         }
-        if (options.monitoringMode && !this._canAcquireMonitoredAlbum(options.artistMbid, album.releaseGroupMbid || album.mbid, options.monitoringMode)) {
+        if (options.monitoringMode && !this._canAcquireMonitoredAlbum(options.artistMbid, albumCatalogId(album), options.monitoringMode)) {
           return { status: "skipped" };
         }
         if (!sourceConfigured) {
@@ -1733,7 +1737,7 @@ export class LibraryManager {
           albumName: album.title,
           artistMbid: artist?.mbid || null,
           albumMbid,
-          trackMbid: track.mbid || null,
+          trackMbid: trackCatalogId(track),
           releaseYear: album.releaseDate ? String(album.releaseDate).slice(0, 4) : null,
           durationMs: track.metadata?.durationMs,
           trackNumber: relation?.trackNumber || 0,
@@ -2154,7 +2158,7 @@ export class LibraryManager {
       const { album, mappedAlbum } = resolved;
       this._setAurralAlbumMonitored(album, monitored);
       if (monitored) {
-        const albumMbid = album.releaseGroupMbid || album.mbid;
+        const albumMbid = albumCatalogId(album);
         const result = albumMbid && album.metadata?.trackListComplete !== true
           ? await this._addAurralAlbum(album.artistId, albumMbid, album.title)
           : await this._finishAurralAlbum(album.id);
@@ -2383,8 +2387,8 @@ export class LibraryManager {
     if (!artist) {
       return { error: "Artist not found in the library", statusCode: 404 };
     }
-    if (!normalizedAlbumMbid) {
-      return { error: "releaseGroupMbid is required", statusCode: 400 };
+    if (!isCatalogAlbumId(normalizedAlbumMbid)) {
+      return { error: "A valid album catalogue ID is required", statusCode: 400 };
     }
     if (options.monitoringMode && !this._canAcquireMonitoredAlbum(options.artistMbid, normalizedAlbumMbid, options.monitoringMode)) {
       return { status: "skipped" };
@@ -2400,7 +2404,7 @@ export class LibraryManager {
     const storedAlbum = existing
       ? null
       : db.prepare("SELECT id, title FROM library_albums WHERE identity_key = ?")
-        .get(buildIdentityKey("release-group", normalizedAlbumMbid));
+        .get(isDeezerAlbumId(normalizedAlbumMbid) ? normalizedAlbumMbid : buildIdentityKey("release-group", normalizedAlbumMbid));
     const storedOwner = getLibraryManagementEntry("album", storedAlbum?.id)?.managedBy;
     if (storedOwner && storedOwner !== "aurral") {
       return buildAlbumConflict({ ...storedAlbum, managedBy: storedOwner, mbid: normalizedAlbumMbid });
@@ -2456,7 +2460,20 @@ export class LibraryManager {
       .map((value) => String(value || "").trim().toLowerCase())
       .filter(Boolean);
     const artistMbid = String(artist.mbid || "").trim().toLowerCase();
-    if (artistMbid && providerArtistIds.length > 0 && !providerArtistIds.includes(artistMbid)) {
+    let verifiedDeezerArtist = false;
+    if (isDeezerAlbumId(normalizedAlbumMbid)) {
+      try {
+        const artistMetadata = await getMetadataArtistByMbid(artistMbid);
+        const override = dbOps.getArtistOverride(artistMbid);
+        const deezerId = await deezerCatalog.resolveArtist(artistMetadata, {
+          overrideId: override?.deezerArtistId,
+          knownAlbums: await listMetadataArtistAlbums(artistMbid, { supplementDeezer: false, hydrateLimit: 0 }),
+        });
+        verifiedDeezerArtist = Boolean(deezerId && deezerId === metadata.deezerArtistId);
+      } catch {}
+    }
+    if (isDeezerAlbumId(normalizedAlbumMbid) ? !verifiedDeezerArtist :
+      artistMbid && providerArtistIds.length > 0 && !providerArtistIds.includes(artistMbid)) {
       return finishExistingOr({
         error: "Album metadata does not unambiguously identify the requested artist",
         statusCode: 422,
@@ -2491,7 +2508,7 @@ export class LibraryManager {
       [String(entry?.id || "").trim().toLowerCase(), entry]));
     const trackArtist = (track) => (compilation
       && trackArtists.get(String(track.artistId || "").trim().toLowerCase())) || null;
-    const trackArtistName = (track) => String(trackArtist(track)?.name || "").trim() || null;
+    const trackArtistName = (track) => String(trackArtist(track)?.name || (compilation ? track.artistName : "") || "").trim() || null;
     const resolvedAlbumName = String(metadata?.title || albumName || "").trim();
     if (!resolvedAlbumName) {
       return finishExistingOr({
@@ -2507,9 +2524,9 @@ export class LibraryManager {
       null;
     const saveAlbum = () => {
       const albumRecord = upsertLibraryAlbum({
-        identityKey: buildIdentityKey("release-group", normalizedAlbumMbid),
-        mbid: normalizedAlbumMbid,
-        releaseGroupMbid: normalizedAlbumMbid,
+        identityKey: isDeezerAlbumId(normalizedAlbumMbid) ? normalizedAlbumMbid : buildIdentityKey("release-group", normalizedAlbumMbid),
+        mbid: musicbrainzId(normalizedAlbumMbid),
+        releaseGroupMbid: musicbrainzId(normalizedAlbumMbid),
         artistId: artist.id,
         title: resolvedAlbumName,
         albumArtist: artist.name || providerArtist?.name || null,
@@ -2517,6 +2534,7 @@ export class LibraryManager {
         metadata: {
           id: normalizedAlbumMbid,
           foreignAlbumId: normalizedAlbumMbid,
+          ...(isDeezerAlbumId(normalizedAlbumMbid) ? { catalogId: normalizedAlbumMbid, catalogProvider: "deezer", deezerAlbumId: metadata.deezerAlbumId } : {}),
           librarySource: "aurral",
           added: existing?.metadata?.added || new Date().toISOString(),
           monitored: options.monitored !== false,
@@ -2532,13 +2550,14 @@ export class LibraryManager {
 
       for (const track of tracks) {
         const trackRecord = upsertLibraryTrack({
-          identityKey: buildIdentityKey("recording", track.trackMbid),
-          mbid: track.trackMbid,
+          identityKey: isDeezerAlbumId(normalizedAlbumMbid) ? track.trackMbid : buildIdentityKey("recording", track.trackMbid),
+          mbid: musicbrainzId(track.trackMbid),
           title: track.title,
           artistName: trackArtistName(track) || artist.name || providerArtist?.name || null,
           metadata: {
             id: track.trackMbid,
-            foreignRecordingId: track.trackMbid,
+            foreignRecordingId: musicbrainzId(track.trackMbid),
+            ...(isDeezerAlbumId(normalizedAlbumMbid) ? { catalogId: track.trackMbid, catalogProvider: "deezer" } : {}),
             foreignTrackId: track.id || track.trackMbid,
             librarySource: "aurral",
             durationMs: track.durationMs,
@@ -2802,7 +2821,7 @@ export class LibraryManager {
     user = null,
     managedBy: requestedManagedBy = null,
   } = {}) {
-    const managedBy = await this.resolveManagedBy(requestedManagedBy);
+    const managedBy = await this.resolveManagedBy(isDeezerAlbumId(albumMbid) ? "aurral" : requestedManagedBy);
     const normalizedAlbumMbid = String(albumMbid || "").trim();
     const normalizedAlbumName = String(albumName || "").trim();
     const normalizedArtistMbid = String(artistMbid || "").trim();

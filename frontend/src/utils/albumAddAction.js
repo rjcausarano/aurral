@@ -1,3 +1,4 @@
+import { isDeezerAlbumId } from "../../../lib/catalogId.js";
 import { Download } from "lucide-react";
 
 const ACTIVE_ALBUM_STATUSES = new Set([
@@ -48,7 +49,8 @@ export const buildAlbumAddAction = (_search, destination = {}) => ({
 });
 
 export const getAlbumAddAction = (input = {}, destination = {}) =>
-  buildAlbumAddAction(shouldTriggerAlbumSearch(input), destination);
+  buildAlbumAddAction(shouldTriggerAlbumSearch(input), [input.id, input.albumId, input.albumMbid, input.foreignAlbumId].some(isDeezerAlbumId)
+    ? { ...destination, primary: "aurral" } : destination);
 
 export const isAlbumCompleteInLibrary = ({
   status = "",
