@@ -19,3 +19,39 @@ Leave **Base URL** empty to use the hosted service. You can also set the address
 ## Sponsorship
 
 The hosted metadata service runs on the maintainer's own infrastructure and can be unavailable at times. [Sponsor Aurral](/sponsorship/) to help keep it reliable.
+
+## Additional albums from Deezer
+
+**Include Deezer albums** in Settings → Metadata supplements BrainzMash artist
+catalogues and album searches with Deezer's public metadata. It is enabled by
+default and requires no Deezer account or subscription. Existing download
+sources continue to supply the audio.
+
+Aurral uses the artist's linked Deezer ID or your artist ID override. When
+neither exists, it accepts a name match only if at least two distinct known
+album titles match exactly one candidate. Ambiguous artists are skipped; this
+prevents mixing the different artists named Airbag. Artists must have a valid
+MusicBrainz identity before supplemental albums can be attached to them.
+
+Matching releases retain the MusicBrainz identity. Deduplication compares the
+artist, title, release year when known, ordered tracks and available durations.
+Deluxe editions and releases with insufficient evidence remain separate.
+
+Deezer-only albums can be opened, previewed and downloaded using Aurral's
+library manager. Lidarr requires MusicBrainz releases and cannot manage these
+albums. Provider identities are stored separately as `deezer:album:<id>` and
+`deezer:track:<id>`; they are never written as MusicBrainz tags. Scanning
+Aurral-tagged downloaded files retains their provider identities.
+
+If Deezer is unavailable, the BrainzMash results remain available. Turning off
+the supplement stops additional catalogue lookups; it does not remove albums
+already added to your library. A rebuilt application is required to activate
+this source change; applying the patch alone does not change a running container.
+
+Artist search also queries the canonical MusicBrainz API, even when BrainzMash
+returns other artists with the same name. MusicBrainz country and disambiguation
+help distinguish those results. Canonical artist relationships supply verified
+Deezer IDs when BrainzMash omits them. Missing BrainzMash artist or album records
+fall back to MusicBrainz; artist album listings browse all MusicBrainz pages.
+These lookups use the existing `enableNarrowFallbacks` setting and share a
+rate limiter. Metadata settings are visible in the settings navigation.
