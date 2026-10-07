@@ -90,7 +90,7 @@ export const getReleaseGroupTracks = async (mbid, context = {}) => {
 };
 
 export const getArtistCover = async (mbid, artistName, refresh = false) => {
-  const params = {};
+  const params = { identityVersion: 2 };
   if (artistName && typeof artistName === "string" && artistName.trim()) {
     params.artistName = artistName.trim();
   }

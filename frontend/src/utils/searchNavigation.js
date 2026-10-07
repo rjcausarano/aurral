@@ -64,7 +64,7 @@ export function buildReleaseGroupNavigationItem(
       ? releaseGroup["secondary-types"]
       : [],
     coverUrl: coverUrl || releaseGroup._coverUrl || releaseGroup.coverUrl || "",
-    deezerAlbumId: releaseGroup._deezerAlbumId || "",
+    deezerAlbumId: releaseGroup._deezerAlbumId || releaseGroup.deezerAlbumId || "",
     rating: releaseGroup.rating || null,
   };
 }
@@ -257,7 +257,7 @@ function getResultIdentity(item) {
 function dedupeItems(items, seen, seenArtistNames = null) {
   const unique = [];
   for (const item of items) {
-    if (item.type === "artist" && seenArtistNames) {
+    if (item.type === "artist" && seenArtistNames && !item.id && !item.artistMbid && !item.mbid) {
       const nameKey = normalizeSearchText(item.name);
       if (nameKey) {
         if (seenArtistNames.has(nameKey)) continue;
@@ -278,7 +278,7 @@ export function dedupeArtistsByName(artists) {
   const seen = new Set();
   const result = [];
   for (const artist of artists) {
-    const key = normalizeSearchText(artist?.name);
+    const key = artist?.artistMbid || artist?.mbid || artist?.id || normalizeSearchText(artist?.name);
     if (!key || seen.has(key)) continue;
     seen.add(key);
     result.push(artist);
@@ -289,7 +289,7 @@ export function dedupeArtistsByName(artists) {
 function findArtistMatch(artists, { id, name }) {
   if (id) {
     const byId = artists.find((artist) => artist?.id === id || artist?.key === id);
-    if (byId) return byId;
+    return byId || null;
   }
   if (name) {
     const normalizedName = normalizeSearchText(name);
@@ -452,7 +452,7 @@ export function buildMixedSearchPageItems(
         return false;
       }
       if (item.type !== "artist") return true;
-      if (excludeName && normalizeSearchText(item.name) === excludeName) {
+      if (!excludeId && excludeName && normalizeSearchText(item.name) === excludeName) {
         return false;
       }
       return true;
@@ -495,7 +495,8 @@ export function buildUnifiedSuggestionSections(data) {
     }
   }
 
-  const artists = dedupeItems(data.catalog?.artists || [], seen, seenArtistNames);
+  // Catalog artist rows stay visible in the Artists section even when also owned.
+  const artists = dedupeItems(data.catalog?.artists || [], new Set());
   if (artists.length > 0) {
     sections.push({
       key: "artists",

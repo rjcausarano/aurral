@@ -1,6 +1,6 @@
 import { dbOps } from "../db/helpers/index.js";
 import { buildStableImageProxyUrl } from "./imageProxyService.js";
-import { getArtistByMbid, listArtistAlbums, searchArtists } from "./providers/brainzmashProvider.js";
+import { getArtistByMbid, listArtistAlbums } from "./providers/brainzmashProvider.js";
 import { getLinkedDeezerArtistId } from "./providers/brainzmashMappers.js";
 import {
   fetchDeezerArtistImageUrl,
@@ -274,7 +274,8 @@ export const getArtistImage = async (
     cachedImage &&
     cachedImage.imageUrl &&
     cachedImage.imageUrl !== "NOT_FOUND" &&
-    !LEGACY_COVER_HOST_PATTERN.test(cachedImage.imageUrl)
+    !LEGACY_COVER_HOST_PATTERN.test(cachedImage.imageUrl) &&
+    cachedImage.images?.some(image => image.identityVerified === true && image.artistMbid === mbid)
   ) {
     const cachedUrl = buildStableImageProxyUrl(cachedImage.imageUrl);
     const images = buildCachedArtistImagePayload(cachedUrl, cachedImage.images);
@@ -296,7 +297,7 @@ export const getArtistImage = async (
     const recovered = await recoverArtistCoverFromCachedReleaseGroups(resolvedMbid);
     if (recovered?.url) {
       negativeImageCache.delete(mbid);
-      dbOps.setImage(mbid, recovered.url, recovered.images);
+      dbOps.setImage(mbid, recovered.url, recovered.images.map(image => ({ ...image, artistMbid: mbid, identityVerified: true })));
       return recovered;
     }
     return { url: null, images: [], notFound: true };
@@ -319,7 +320,7 @@ export const getArtistImage = async (
       const primaryImage = images.find((image) => image.front) || images[0];
       if (primaryImage?.image) {
         negativeImageCache.delete(mbid);
-        dbOps.setImage(mbid, primaryImage.image, images);
+        dbOps.setImage(mbid, primaryImage.image, images.map(image => ({ ...image, artistMbid: mbid, identityVerified: true })));
         return {
           url: primaryImage.image,
           images,
@@ -327,18 +328,17 @@ export const getArtistImage = async (
       }
 
       const resolvedArtistName = metadataArtist?.name || artistName || null;
-      const deezerImage = await fetchDeezerArtistImageUrl({
-        artistName: resolvedArtistName || "",
-        deezerArtistId:
-          override?.deezerArtistId || getLinkedDeezerArtistId(metadataArtist?.links),
-      });
+      const verifiedDeezerArtistId = override?.deezerArtistId || getLinkedDeezerArtistId(metadataArtist?.links);
+      const deezerImage = verifiedDeezerArtistId ? await fetchDeezerArtistImageUrl({
+        deezerArtistId: verifiedDeezerArtistId,
+      }) : null;
       if (deezerImage) {
         negativeImageCache.delete(mbid);
         const result = buildArtistCoverFromUrl(
           buildStableImageProxyUrl(deezerImage),
           ["Artist"],
         );
-        dbOps.setImage(mbid, result.url, result.images);
+        dbOps.setImage(mbid, result.url, result.images.map(image => ({ ...image, artistMbid: mbid, identityVerified: true })));
         return result;
       }
 
@@ -425,33 +425,7 @@ export const getArtistImage = async (
       return { url: null, images: [], transientError: true };
     }
 
-    const fallbackArtistName = metadataArtist?.name;
-    if (fallbackArtistName) {
-      try {
-        const searchResults = await searchArtists(fallbackArtistName, { limit: 20 });
-        const siblings = searchResults.items.filter(
-          (a) => a.id !== resolvedMbid && a.images?.length > 0 && a.name === fallbackArtistName,
-        );
-        if (siblings.length > 0) {
-          siblings.sort((a, b) => b.images.length - a.images.length);
-          const sibling = siblings[0];
-          dbOps.setArtistOverride(mbid, {
-            musicbrainzId: sibling.id,
-            deezerArtistId: override?.deezerArtistId || null,
-          });
-          const siblingResult = await getArtistImage(sibling.id, {
-            forceRefresh: false,
-            artistName: null,
-          });
-          if (siblingResult?.url) {
-            negativeImageCache.delete(mbid);
-            dbOps.setImage(mbid, siblingResult.url, siblingResult.images);
-            return siblingResult;
-          }
-        }
-      } catch {}
-    }
-
+    // A name match cannot transfer artwork or rewrite an artist's identity.
     addToNegativeCache(mbid);
     dbOps.setImage(mbid, "NOT_FOUND");
 
