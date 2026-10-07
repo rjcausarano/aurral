@@ -245,6 +245,10 @@ export function toLegacyReleaseGroupSummary(album, artist = null, { score = 0 } 
     "primary-type": album.type || "Album",
     "secondary-types": album.secondaryTypes || [],
     "first-release-date": album.releaseDate || album.firstReleaseDate || null,
+    coverUrl: album.coverUrl || null,
+    deezerAlbumId: album.deezerAlbumId || null,
+    catalogProvider: album.catalogProvider || "brainzmash",
+    metadataSources: album.metadataSources || ["brainzmash"],
     rating: album.rating || null,
     score,
     "artist-credit": artistName

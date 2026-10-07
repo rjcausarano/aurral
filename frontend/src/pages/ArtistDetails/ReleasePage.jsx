@@ -1,3 +1,4 @@
+import { isDeezerAlbumId } from "../../../../lib/catalogId.js";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
@@ -135,7 +136,8 @@ function ReleasePage() {
   const artistName =
     locationState?.artistName ||
     (Array.isArray(artistCredits)
-      ? artistCredits.find((credit) => credit?.artist?.id === artistMbid)?.name || ""
+      ? artistCredits.find((credit) => credit?.artist?.id === artistMbid)?.name ||
+        (isDeezerAlbumId(releaseMbid) ? artistCredits[0]?.name : "") || ""
       : "");
 
   const [coverUrl, setCoverUrl] = useState(release._coverUrl || "");
@@ -257,7 +259,8 @@ function ReleasePage() {
   );
   const isComplete = libraryDisplay.isComplete;
   const triggerSearch = libraryDisplay.triggerSearch;
-  const albumAddAction = buildAlbumAddAction(triggerSearch, libraryDestination);
+  const albumAddAction = buildAlbumAddAction(triggerSearch, isDeezerAlbumId(releaseMbid)
+    ? { ...libraryDestination, primary: "aurral" } : libraryDestination);
   const albumDownloading =
     !isComplete &&
     (isAlbumDownloading(releaseMbid) || ACTIVE_DOWNLOAD_STATUSES.has(String(downloadStatus?.status)));

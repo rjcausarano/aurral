@@ -77,6 +77,7 @@ export function registerGeneral(router) {
               DEFAULT_METADATA_BASE_URL,
           userAgentSuffix: "",
           enableNarrowFallbacks: true,
+        supplementDeezer: true,
         };
       } else {
         settings.integrations.metadata = {
@@ -184,6 +185,7 @@ export function registerGeneral(router) {
           typeof nextMetadata.userAgentSuffix === "string"
             ? nextMetadata.userAgentSuffix.trim()
             : "";
+        nextMetadata.supplementDeezer = nextMetadata.supplementDeezer !== false;
         nextMetadata.enableNarrowFallbacks =
           nextMetadata.enableNarrowFallbacks !== false;
         integrations.metadata = nextMetadata;

@@ -1,3 +1,9 @@
+import { musicbrainzCatalog } from "./musicbrainzCatalogProvider.js";
+import { musicbrainzId } from "../../../lib/catalogId.js";
+import { logger, safeLogDiagnostic } from "../logger.js";
+import { isDeezerAlbumId } from "../../../lib/catalogId.js";
+import { deezerCatalog } from "./deezerCatalogProvider.js";
+import { catalogText, mergeCatalogAlbums } from "./catalogMerge.js";
 import axios from "../../../lib/axiosFetch.js";
 import createCache from "../apiClients/simpleCache.js";
 import { dbOps } from "../../db/helpers/index.js";
@@ -5,7 +11,6 @@ import {
   APP_NAME,
   APP_VERSION,
   DEFAULT_METADATA_BASE_URL,
-  MUSICBRAINZ_API,
 } from "../../config/constants.js";
 import {
   getNormalizedText,
@@ -63,6 +68,8 @@ const providerRequestLimiter = createRateLimiter(METADATA_REQUEST_MIN_INTERVAL_M
 const METADATA_MAX_RETRIES = 1;
 
 export function clearMetadataProviderCaches() {
+  deezerCatalog.clear();
+  musicbrainzCatalog.clear();
   providerCache.flushAll();
   metadataNotFoundCache.flushAll();
   releaseCache.flushAll();
@@ -400,13 +407,36 @@ function storeAlbumReleaseMappings(album) {
 }
 
 export async function getArtistByMbid(mbid, { signal } = {}) {
-  const data = await request(`/artist/${mbid}`, {}, { signal });
-  return toNormalizedArtist(data);
+  let artist;
+  try { artist = toNormalizedArtist(await request(`/artist/${mbid}`, {}, { signal })); }
+  catch (error) {
+    signal?.throwIfAborted();
+    if (!isNarrowFallbacksEnabled()) throw error;
+    return musicbrainzCatalog.artist(mbid, { signal });
+  }
+  // URL relationships in the canonical database are authoritative provider IDs.
+  if (getSettingsMetadata().supplementDeezer !== false && !artist.links.some(link => /deezer\.com/.test(link.target))) {
+    try {
+      const canonical = await musicbrainzCatalog.artist(mbid, { signal });
+      artist = { ...artist, links: [...artist.links, ...canonical.links], aliases: [...new Set([...artist.aliases, ...canonical.aliases])] };
+    } catch (error) { signal?.throwIfAborted(); }
+  }
+  return artist;
 }
 
 export async function getAlbumByMbid(albumMbid, { signal, forceRefresh = false } = {}) {
-  const data = await request(`/album/${albumMbid}`, {}, { signal, forceRefresh });
-  const normalized = toNormalizedAlbum(data);
+  if (isDeezerAlbumId(albumMbid)) {
+    const album = await deezerCatalog.album(albumMbid);
+    storeAlbumReleaseMappings(album);
+    return album;
+  }
+  let normalized;
+  try { normalized = toNormalizedAlbum(await request(`/album/${albumMbid}`, {}, { signal, forceRefresh })); }
+  catch (error) {
+    signal?.throwIfAborted();
+    if (!isNarrowFallbacksEnabled()) throw error;
+    normalized = await musicbrainzCatalog.album(albumMbid, { signal });
+  }
   storeAlbumReleaseMappings(normalized);
   return normalized;
 }
@@ -430,6 +460,23 @@ export async function searchArtists(query, { limit = 24, offset = 0, signal } = 
     }));
   } catch {
     signal?.throwIfAborted();
+  }
+  if (isNarrowFallbacksEnabled()) {
+    try {
+      // Search both sources even when BrainzMash returns other bands with the same name.
+      const canonical = await musicbrainzCatalog.searchArtists(query, { limit: Math.max(50, limit + offset), signal });
+      const byId = new Map(items.filter(item => musicbrainzId(item.id)).map(item => [item.id, item]));
+      for (const item of canonical) {
+        const existing = byId.get(item.id);
+        byId.set(item.id, existing ? { ...item, ...existing, disambiguation: existing.disambiguation || item.disambiguation, country: item.country, area: item.area, score: Math.max(item.score, existing.score || 0) } : item);
+      }
+      items = [...byId.values()].sort((a, b) =>
+        Number(catalogText(b.name) === catalogText(query)) - Number(catalogText(a.name) === catalogText(query)) ||
+        (b.score || 0) - (a.score || 0));
+    } catch (error) {
+      signal?.throwIfAborted();
+      logger.warn("metadata", "MusicBrainz artist search supplement failed", { message: safeLogDiagnostic(error) });
+    }
   }
   return {
     query,
@@ -488,19 +535,9 @@ export async function searchAlbums(
     const mbQuery = artistName
       ? `artist:"${escapeLucenePhrase(artistName)}" AND releasegroup:"${escapeLucenePhrase(query)}"`
       : String(query || "").trim();
-    const response = await axios.get(`${MUSICBRAINZ_API}/release-group`, {
-      params: {
-        fmt: "json",
-        query: mbQuery,
-        limit: requestedLimit,
-        offset: 0,
-      },
-      timeout: 8000,
-      headers: {
-        "User-Agent": `${APP_NAME}/${APP_VERSION} (metadata album fallback)`,
-      },
-      signal,
-    });
+    const response = { data: await musicbrainzCatalog.get("/release-group", {
+      query: mbQuery, limit: Math.min(100, requestedLimit), offset: 0,
+    }, { signal }) };
     const source = Array.isArray(response?.data?.["release-groups"])
       ? response.data["release-groups"]
       : [];
@@ -524,6 +561,44 @@ export async function searchAlbums(
     });
   }
 
+  if (getSettingsMetadata().supplementDeezer !== false) {
+    try {
+      const supplemental = [];
+      const queryText = artistName ? `artist:"${artistName.replace(/"/g, " ")}" album:"${String(query).replace(/"/g, " ")}"` : query;
+      const found = await deezerCatalog.search(queryText, requestedLimit);
+      const matchesByArtist = new Map();
+      for (const row of found.data || []) {
+        const deezerArtistId = String(row.artist?.id || "");
+        if (!/^[1-9]\d*$/.test(deezerArtistId)) continue;
+        if (!matchesByArtist.has(deezerArtistId)) {
+          const candidates = await searchArtists(row.artist.name, { limit: 10, signal });
+          const verified = [];
+          for (const candidate of candidates.items || []) {
+            if (catalogText(candidate.name) !== catalogText(row.artist.name)) continue;
+            const artist = await getArtistByMbid(candidate.id).catch(() => null);
+            if (!artist) continue;
+            const override = dbOps.getArtistOverride(candidate.id);
+            const resolvedId = await deezerCatalog.resolveArtist(artist, {
+              overrideId: override?.deezerArtistId,
+            });
+            if (resolvedId === deezerArtistId) verified.push(artist);
+          }
+          matchesByArtist.set(deezerArtistId, verified.length === 1 ? verified[0] : null);
+        }
+        const artist = matchesByArtist.get(deezerArtistId);
+        if (!artist) continue;
+        try {
+          const album = await deezerCatalog.album(String(row.id));
+          if (album.deezerArtistId !== deezerArtistId) continue;
+          supplemental.push({ ...album, artistId: artist.id, artistName: artist.name,
+            artists: [artist], verifiedArtistId: artist.id, score: Math.max(0, 100 - supplemental.length) });
+        } catch { signal?.throwIfAborted(); }
+      }
+      items = await mergeCatalogAlbums(items, supplemental, {
+        loadPrimary: getAlbumByMbid, selectRelease: selectAlbumRelease,
+      });
+    } catch { signal?.throwIfAborted(); }
+  }
   items = applyReleaseTypeFilter(items, releaseTypes);
 
   if (sort === "relevance") {
@@ -632,13 +707,45 @@ export async function listArtistAlbums(
     hydrateLimit = 30,
     signal,
     forceRefresh = false,
+    supplementDeezer = true,
   } = {},
 ) {
-  const rawArtist = await request(`/artist/${artistMbid}`, {}, { signal, forceRefresh });
-  const artist = toNormalizedArtist(rawArtist);
-  let albums = (Array.isArray(rawArtist?.Albums) ? rawArtist.Albums : []).map((entry) =>
-    toNormalizedArtistAlbum(entry),
-  );
+  let rawArtist = null;
+  try { rawArtist = await request(`/artist/${artistMbid}`, {}, { signal, forceRefresh }); }
+  catch (error) { signal?.throwIfAborted(); if (!isNarrowFallbacksEnabled()) throw error; }
+  const artist = await getArtistByMbid(artistMbid, { signal });
+  let albums = (Array.isArray(rawArtist?.Albums) ? rawArtist.Albums : []).map(toNormalizedArtistAlbum);
+  if (isNarrowFallbacksEnabled()) {
+    try {
+      const canonical = await musicbrainzCatalog.artistAlbums(artistMbid, { signal });
+      const byId = new Map(albums.map(album => [album.id, album]));
+      for (const album of canonical) {
+        const existing = byId.get(album.id);
+        byId.set(album.id, existing ? { ...album, ...existing, firstReleaseDate: existing.firstReleaseDate || album.firstReleaseDate } : album);
+      }
+      albums = [...byId.values()];
+    } catch (error) {
+      signal?.throwIfAborted();
+      if (!rawArtist) throw error;
+      logger.warn("metadata", "MusicBrainz artist catalogue supplement failed", { artistMbid, message: safeLogDiagnostic(error) });
+    }
+  }
+  albums = albums.map((album) => ({ ...album, artistId: artist.id, artistName: artist.name }));
+  if (supplementDeezer && getSettingsMetadata().supplementDeezer !== false) {
+    try {
+      const override = dbOps.getArtistOverride(artistMbid);
+      const supplemental = await deezerCatalog.artistAlbums(artist, {
+        overrideId: override?.deezerArtistId,
+        knownAlbums: albums,
+      });
+      albums = await mergeCatalogAlbums(albums, supplemental, {
+        loadPrimary: getAlbumByMbid, selectRelease: selectAlbumRelease,
+      });
+    } catch (error) {
+      signal?.throwIfAborted();
+      logger.warn("metadata", "Deezer artist catalogue supplement failed", { artistMbid, message: safeLogDiagnostic(error) });
+    }
+  }
   albums = applyReleaseTypeFilter(albums, releaseTypes);
   albums.sort((left, right) => {
     const leftBootleg = (left.releaseStatuses || []).includes("Bootleg") ? 1 : 0;

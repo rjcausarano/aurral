@@ -168,6 +168,7 @@ const defaultSettings = {
       baseUrl: DEFAULT_METADATA_BASE_URL,
       userAgentSuffix: "",
       enableNarrowFallbacks: true,
+        supplementDeezer: true,
     },
     general: { authUser: "", authPassword: "" },
     gotify: {

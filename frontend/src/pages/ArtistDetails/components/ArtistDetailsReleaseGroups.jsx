@@ -158,7 +158,7 @@ export function ArtistDetailsReleaseGroups({
                     <div onClick={(event) => event.stopPropagation()}>
                       <AddActionButton
                         {...getAlbumAddAction(
-                          { status: status?.status, managedBy: status?.albumInfo?.managedBy },
+                          { id: releaseGroup.id, status: status?.status, managedBy: status?.albumInfo?.managedBy },
                           libraryDestination,
                         )}
                         ownerConflict={status?.ownerConflict}

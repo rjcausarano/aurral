@@ -1,5 +1,5 @@
 import axios from "../../../lib/axiosFetch.js";
-import createRateLimiter from "./rateLimiter.js";
+import { musicbrainzRateLimiter as mbLimiter } from "./musicbrainzRateLimiter.js";
 import createCache from "./simpleCache.js";
 import { dbOps } from "../../db/helpers/index.js";
 import {
@@ -40,7 +40,6 @@ const SECONDARY_RELEASE_TYPES = [
   "Other",
 ];
 
-const mbLimiter = createRateLimiter(1000);
 
 export const musicbrainzRequest = async (endpoint, params = {}) =>
   legacyMusicbrainzRequest(endpoint, params);
@@ -74,6 +73,10 @@ export async function musicbrainzGetArtistReleaseGroups(
       "secondary-types": Array.isArray(item.secondaryTypes)
         ? item.secondaryTypes
         : [],
+      coverUrl: item.coverUrl || null,
+      deezerAlbumId: item.deezerAlbumId || null,
+      catalogProvider: item.catalogProvider || "brainzmash",
+      metadataSources: item.metadataSources || ["brainzmash"],
       rating: item.rating || null,
       "artist-credit": item.artistName
         ? [

@@ -1,3 +1,4 @@
+import { musicbrainzId } from "../../lib/catalogId.js";
 import { getTagArtists } from "./musicDataSource/index.js";
 import { buildImageProxyUrl } from "./imageProxyService.js";
 import { selectBestArtistImage } from "./imageService.js";
@@ -29,7 +30,7 @@ async function getAlbumLibraryLookup(albumMbids) {
   }
 
   try {
-    const wanted = [...new Set(albumMbids)].slice(0, LIDARR_ALBUM_LOOKUP_BATCH_MAX);
+    const wanted = [...new Set(albumMbids.filter(musicbrainzId))].slice(0, LIDARR_ALBUM_LOOKUP_BATCH_MAX);
     const albums = await lidarrClient.getAlbumsByMbidsSettled(wanted);
     for (let index = 0; index < wanted.length; index += 1) {
       const foreignAlbumId = wanted[index];
@@ -90,8 +91,8 @@ function normalizeArtistItem(item) {
     image: image?.url || null,
     imageUrl: image?.url || null,
     artistType: item.type || null,
-    country: null,
-    area: null,
+    country: item.country || null,
+    area: item.area || null,
     begin: null,
     end: null,
     disambiguation: item.disambiguation || null,
@@ -113,6 +114,9 @@ function normalizeAlbumItem(item, lookup = null) {
     primaryType: item.type || null,
     secondaryTypes: Array.isArray(item.secondaryTypes) ? item.secondaryTypes : [],
     coverUrl: item.coverUrl || null,
+    catalogProvider: item.catalogProvider || "brainzmash",
+    deezerAlbumId: item.deezerAlbumId || null,
+    metadataSources: item.metadataSources || ["brainzmash"],
     inLibrary: !!lookup,
     libraryAlbumId: lookup?.libraryAlbumId || null,
     libraryArtistId: lookup?.libraryArtistId || null,

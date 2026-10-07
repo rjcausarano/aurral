@@ -1,3 +1,4 @@
+import { isCatalogAlbumId, isDeezerAlbumId } from "../../../../lib/catalogId.js";
 import { UUID_REGEX } from "../../../../lib/uuid.js";
 import { dbOps } from "../../../db/helpers/index.js";
 import { cacheMiddleware } from "../../../middleware/cache.js";
@@ -89,7 +90,7 @@ export function registerReleaseGroup(router) {
     async (req, res) => {
       try {
         const { mbid } = req.params;
-        if (!UUID_REGEX.test(mbid)) {
+        if (!isCatalogAlbumId(mbid)) {
           return res.status(400).json({ error: "Invalid MBID format" });
         }
 
@@ -131,7 +132,7 @@ export function registerReleaseGroup(router) {
         typeof req.query.albumTitle === "string" && req.query.albumTitle.trim()
           ? req.query.albumTitle.trim()
           : "";
-      if (!UUID_REGEX.test(mbid)) {
+      if (!isCatalogAlbumId(mbid)) {
         return res
           .status(400)
           .json({ error: "Invalid MBID format", images: [] });
@@ -180,7 +181,7 @@ export function registerReleaseGroup(router) {
     async (req, res) => {
       try {
         const { mbid } = req.params;
-        if (!UUID_REGEX.test(mbid)) {
+        if (!isCatalogAlbumId(mbid)) {
           return res.status(400).json({ error: "Invalid MBID format" });
         }
 
@@ -224,7 +225,7 @@ export function registerReleaseGroup(router) {
               getLinkedDeezerArtistId(metadataArtist?.links) || "";
           }
         }
-        const enrichedTracks = await enrichTracksWithDeezerPreviews(tracks, {
+        const enrichedTracks = isDeezerAlbumId(mbid) ? tracks : await enrichTracksWithDeezerPreviews(tracks, {
           artistName,
           deezerArtistId,
           deezerAlbumId,
@@ -239,7 +240,8 @@ export function registerReleaseGroup(router) {
         res.json(
           enrichedTracks.map((track) => ({
             id: track.recordingId || track.id,
-            mbid: track.recordingId || track.id,
+            mbid: isDeezerAlbumId(mbid) ? null : track.recordingId || track.id,
+            catalogId: isDeezerAlbumId(mbid) ? track.id : null,
             title: track.title,
             trackName: track.title,
             trackNumber: track.trackPosition || track.trackNumber || 0,

@@ -199,6 +199,7 @@ export const normalizeSettings = (savedSettings) => {
         ),
         userAgentSuffix: "",
         enableNarrowFallbacks: true,
+        supplementDeezer: true,
         ...metadata,
       },
       general: {

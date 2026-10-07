@@ -24,7 +24,7 @@ export const SETTINGS_TABS = [
   { id: "connect", label: "Connect", icon: Bell },
   { id: "rss-news", label: "RSS news", icon: Rss },
   { id: "discover", label: "Discover", icon: Compass },
-  { id: "metadata", label: "Metadata", icon: Database, hidden: true },
+  { id: "metadata", label: "Metadata", icon: Database },
   { id: "users", label: "Users", icon: Users },
 ];
 
